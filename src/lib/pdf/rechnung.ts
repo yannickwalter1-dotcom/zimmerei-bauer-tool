@@ -1,3 +1,4 @@
+import type { jsPDF } from "jspdf";
 import type {
   CompanySettings,
   Customer,
@@ -34,21 +35,20 @@ async function bildAlsDataUrl(url: string): Promise<string | null> {
   }
 }
 
-// Enthält alle Pflichtangaben nach § 14 UStG: vollständiger Name/Anschrift von
-// Leistendem und Empfänger, Steuernummer/USt-IdNr., Rechnungsdatum,
-// fortlaufende Nummer, Menge/Art der Leistung, Leistungszeitpunkt, nach
-// Steuersätzen aufgeschlüsseltes Entgelt sowie Steuersatz und Steuerbetrag.
-// Für den Kunden freigegebene Baustellendoku-Einträge werden als Anhang
-// mit ausgegeben.
-export async function erzeugeRechnungPdf(
+// Zeichnet eine Rechnung (Kopf, Kunde, Positionstabelle, Summen) auf die
+// aktuelle Seite von doc. Enthält alle Pflichtangaben nach § 14 UStG:
+// vollständiger Name/Anschrift von Leistendem und Empfänger,
+// Steuernummer/USt-IdNr., Rechnungsdatum, fortlaufende Nummer, Menge/Art der
+// Leistung, Leistungszeitpunkt, nach Steuersätzen aufgeschlüsseltes Entgelt
+// sowie Steuersatz und Steuerbetrag. Wird sowohl für den Einzelexport als
+// auch für die Steuerberater-Sammel-PDF verwendet.
+export function zeichneRechnungInhalt(
+  doc: jsPDF,
   firma: CompanySettings,
   kunde: Customer,
   rechnung: Invoice,
   positionen: InvoiceItem[],
-  freigegebeneDokus: SiteDoc[] = [],
-): Promise<void> {
-  const doc = neuesDokument();
-
+): void {
   let y = zeichneKopf(doc, firma, "Rechnung", rechnung.nummer);
   y = zeichneKundenAdresse(doc, kunde, y);
 
@@ -99,6 +99,17 @@ export async function erzeugeRechnungPdf(
 
   const { netto, mwst, brutto } = summen(rechnung.summe_netto, rechnung.mwst_satz);
   zeichneSummenblock(doc, finalY(doc) + 10, netto, rechnung.mwst_satz, mwst, brutto);
+}
+
+export async function erzeugeRechnungPdf(
+  firma: CompanySettings,
+  kunde: Customer,
+  rechnung: Invoice,
+  positionen: InvoiceItem[],
+  freigegebeneDokus: SiteDoc[] = [],
+): Promise<void> {
+  const doc = neuesDokument();
+  zeichneRechnungInhalt(doc, firma, kunde, rechnung, positionen);
 
   for (const eintrag of freigegebeneDokus) {
     doc.addPage();
