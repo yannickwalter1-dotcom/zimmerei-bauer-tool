@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Zimmerei Bauer – Angebote, Rechnungen & Baustellendoku
 
-## Getting Started
+Eine schlanke Web-App für einen kleinen Zimmereibetrieb: Angebote und
+Rechnungen in wenigen Klicks erstellen, Baustellendoku direkt vom Handy.
+Komplett auf Deutsch, mobile-first, als PWA nutzbar.
 
-First, run the development server:
+**Tech-Stack:** Next.js (App Router) + TypeScript + Tailwind CSS, Supabase
+(Postgres + Storage), PDF-Erzeugung clientseitig mit jsPDF, Deployment auf
+Vercel.
+
+## Setup
+
+### 1. Supabase-Projekt anlegen
+
+1. Auf [supabase.com](https://supabase.com) ein neues Projekt anlegen.
+2. Unter **Project Settings → API** die **Project URL** und den
+   **anon public key** notieren.
+
+### 2. Datenbankschema einspielen
+
+1. Im Supabase-Dashboard **SQL Editor** öffnen.
+2. Den Inhalt von [`supabase/schema.sql`](./supabase/schema.sql) einfügen und
+   ausführen.
+
+Das Schema legt alle Tabellen an (Kunden, Positionskatalog, Angebote,
+Rechnungen, Baustellendoku, Nummernkreise, Firmeneinstellungen), die
+Postgres-Funktionen für die atomare, lückenlose Nummernvergabe sowie den
+Storage-Bucket `baustellenfotos` samt Zugriffsrichtlinien.
+
+> Falls das Anlegen des Storage-Buckets per SQL in eurem Projekt nicht
+> erlaubt ist: Im Dashboard unter **Storage** einen neuen Bucket namens
+> `baustellenfotos` anlegen und als **Public** markieren. Die Policies aus
+> `schema.sql` (Abschnitt "Storage Bucket") danach trotzdem ausführen.
+
+### 3. Umgebungsvariablen setzen
+
+`.env.local.example` nach `.env.local` kopieren und ausfüllen:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.local.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| Variable | Beschreibung |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Project URL aus Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Anon Public Key aus Supabase |
+| `ACCESS_CODE` | Gemeinsamer Zugangscode für Inhaber + Büro (frei wählbar) |
+| `OPENAI_API_KEY` | API-Key für die Spracheingabe-Transkription (Whisper) |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Hinweis zur Zugriffssicherung:** Diese App verwendet bewusst kein
+vollständiges Login-System, sondern einen gemeinsamen Zugangscode (siehe
+`src/proxy.ts`). Row Level Security bleibt in Supabase deshalb deaktiviert;
+der Anon-Key sollte daher nicht öffentlich geteilt werden.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 4. Lokal starten
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Die App läuft dann unter `http://localhost:3000`. Beim ersten Aufruf wird
+nach dem Zugangscode gefragt.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 5. Auf Vercel deployen
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Repository mit einem Vercel-Projekt verbinden.
+2. Die vier Umgebungsvariablen aus Schritt 3 in den Vercel-Projekteinstellungen
+   (**Settings → Environment Variables**) hinterlegen.
+3. Deployen. Vercel erkennt Next.js automatisch.
 
-## Deploy on Vercel
+### 6. Firmendaten pflegen
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Nach dem ersten Login unter **Mehr → Firmendaten & Einstellungen** die
+echten Firmendaten (Anschrift, Steuernummer/USt-IdNr., Bankverbindung, Logo)
+hinterlegen – diese werden in allen PDFs (Angebote, Rechnungen,
+Steuerberater-Export) verwendet. Bis dahin werden Platzhalterdaten
+angezeigt.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 7. Als App auf dem Handy nutzen
+
+Unter **Mehr → 📲 App aufs Handy holen** stehen kurze Anleitungen für iPhone
+(Safari: Teilen → Zum Home-Bildschirm) und Android (Chrome: Menü → App
+installieren).
+
+## Funktionsübersicht
+
+- **Kunden** – Liste, Anlegen, Bearbeiten, Löschen
+- **Positionskatalog** – Wiederkehrende Standardleistungen mit
+  automatischer Einzelpreisberechnung (Zeit × Stundensatz + Material)
+- **Angebote** – Positionen per Klick aus dem Katalog oder frei erfassen,
+  Sprachnotiz per Mikrofon (Transkription über OpenAI Whisper), Live-Summen,
+  PDF-Export
+- **Rechnungen** – Per Klick aus einem Angebot erzeugen, fortlaufende
+  Nummer, Pflichtangaben nach § 14 UStG im PDF, GoBD-konform (keine
+  nachträgliche Änderung, Korrektur nur per Stornorechnung)
+- **Baustellendokumentation** – Fotos und Notizen pro Auftrag, optionale
+  Freigabe für den Kunden, freigegebene Einträge erscheinen als Anhang der
+  Rechnung
+- **Steuerberater-Export** – Alle Rechnungen eines Monats als PDF-Sammlung
+  oder CSV-Liste herunterladen
+
+## Projektstruktur
+
+```
+src/
+  app/
+    login/                 Zugangscode-Login
+    (protected)/           Alle geschützten Seiten (Kunden, Angebote, ...)
+    api/transkription/     Route für die Whisper-Transkription
+  components/               Wiederverwendbare UI-Bausteine
+  lib/                       Formatierung, Preisberechnung, PDF-Erzeugung,
+                             Supabase-Clients
+  types/database.ts          Handgepflegte Typen passend zu supabase/schema.sql
+supabase/schema.sql          Datenbankschema, Funktionen, Storage-Policies
+```

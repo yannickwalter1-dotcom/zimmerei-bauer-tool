@@ -32,6 +32,33 @@ export default function MehrPage() {
           </button>
         </form>
       </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-4">
+        <p className="mb-2 text-lg font-semibold text-zinc-900">
+          📲 App aufs Handy holen
+        </p>
+        <p className="mb-3 text-sm text-zinc-500">
+          Damit diese Seite wie eine App aussieht und startet, zum
+          Home-Bildschirm hinzufügen:
+        </p>
+        <details className="mb-2">
+          <summary className="cursor-pointer font-medium text-zinc-900">
+            iPhone (Safari)
+          </summary>
+          <p className="mt-1 text-sm text-zinc-600">
+            Teilen-Symbol antippen → &quot;Zum Home-Bildschirm&quot; auswählen.
+          </p>
+        </details>
+        <details>
+          <summary className="cursor-pointer font-medium text-zinc-900">
+            Android (Chrome)
+          </summary>
+          <p className="mt-1 text-sm text-zinc-600">
+            Menü (⋮) oben rechts antippen → &quot;App installieren&quot; bzw.
+            &quot;Zum Startbildschirm hinzufügen&quot; auswählen.
+          </p>
+        </details>
+      </div>
     </div>
   );
 }
