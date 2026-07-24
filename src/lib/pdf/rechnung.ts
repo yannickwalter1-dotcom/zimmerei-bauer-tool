@@ -3,6 +3,7 @@ import type {
   Customer,
   Invoice,
   InvoiceItem,
+  SiteDoc,
 } from "@/types/database";
 import { datumPlusTage, formatDatum, formatEuro, formatZahl } from "@/lib/format";
 import { summen } from "@/lib/calc";
@@ -17,16 +18,35 @@ import {
   zeichneSummenblock,
 } from "./shared";
 
+async function bildAlsDataUrl(url: string): Promise<string | null> {
+  try {
+    const antwort = await fetch(url);
+    if (!antwort.ok) return null;
+    const blob = await antwort.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 // Enthält alle Pflichtangaben nach § 14 UStG: vollständiger Name/Anschrift von
 // Leistendem und Empfänger, Steuernummer/USt-IdNr., Rechnungsdatum,
 // fortlaufende Nummer, Menge/Art der Leistung, Leistungszeitpunkt, nach
 // Steuersätzen aufgeschlüsseltes Entgelt sowie Steuersatz und Steuerbetrag.
-export function erzeugeRechnungPdf(
+// Für den Kunden freigegebene Baustellendoku-Einträge werden als Anhang
+// mit ausgegeben.
+export async function erzeugeRechnungPdf(
   firma: CompanySettings,
   kunde: Customer,
   rechnung: Invoice,
   positionen: InvoiceItem[],
-): void {
+  freigegebeneDokus: SiteDoc[] = [],
+): Promise<void> {
   const doc = neuesDokument();
 
   let y = zeichneKopf(doc, firma, "Rechnung", rechnung.nummer);
@@ -79,6 +99,34 @@ export function erzeugeRechnungPdf(
 
   const { netto, mwst, brutto } = summen(rechnung.summe_netto, rechnung.mwst_satz);
   zeichneSummenblock(doc, finalY(doc) + 10, netto, rechnung.mwst_satz, mwst, brutto);
+
+  for (const eintrag of freigegebeneDokus) {
+    doc.addPage();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text("Baustellendokumentation", SEITENRAND, 20);
+    let bildY = 28;
+
+    if (eintrag.foto_url) {
+      const dataUrl = await bildAlsDataUrl(eintrag.foto_url);
+      const format = dataUrl?.match(/^data:image\/(\w+);/)?.[1]?.toUpperCase();
+      if (dataUrl && format) {
+        try {
+          doc.addImage(dataUrl, format, SEITENRAND, bildY, 182, 130, undefined, "FAST");
+          bildY += 138;
+        } catch {
+          // Bildformat konnte nicht eingebettet werden, Anhang wird ohne Bild fortgesetzt.
+        }
+      }
+    }
+
+    if (eintrag.notiz) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      const zeilen = doc.splitTextToSize(eintrag.notiz, 182);
+      doc.text(zeilen, SEITENRAND, bildY);
+    }
+  }
 
   zeichneFusszeile(doc, firma);
   doc.save(`${rechnung.nummer}.pdf`);

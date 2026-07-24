@@ -46,6 +46,15 @@ export default async function RechnungDetailPage({
 
   if (!kunde) notFound();
 
+  const { data: freigegebeneDokus } = rechnung.quote_id
+    ? await supabase
+        .from("site_docs")
+        .select("*")
+        .eq("quote_id", rechnung.quote_id)
+        .eq("fuer_kunde_freigegeben", true)
+        .order("created_at", { ascending: true })
+    : { data: [] };
+
   const { netto, mwst, brutto } = summen(rechnung.summe_netto, rechnung.mwst_satz);
 
   return (
@@ -127,7 +136,13 @@ export default async function RechnungDetailPage({
           )}
         </p>
 
-        <PdfButton firma={firma} kunde={kunde} rechnung={rechnung} positionen={positionen ?? []} />
+        <PdfButton
+          firma={firma}
+          kunde={kunde}
+          rechnung={rechnung}
+          positionen={positionen ?? []}
+          freigegebeneDokus={freigegebeneDokus ?? []}
+        />
 
         <p className="text-center text-xs text-zinc-400">
           Rechnungen können aus rechtlichen Gründen (GoBD) nicht nachträglich

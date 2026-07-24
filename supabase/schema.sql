@@ -3,9 +3,9 @@
 --
 -- Hinweis zu Row Level Security: Diese App verwendet bewusst kein
 -- Supabase-Auth-System, sondern einen gemeinsamen Zugangscode auf
--- Next.js-Ebene (siehe middleware.ts). RLS bleibt daher auf allen Tabellen
--- deaktiviert (Postgres-Standard). Der Zugriff wird ausschließlich über die
--- Middleware und dadurch geschützte Server-seitige Datenzugriffe kontrolliert.
+-- Next.js-Ebene (siehe proxy.ts). RLS bleibt daher auf allen Tabellen
+-- deaktiviert (Postgres-Standard). Der Zugriff wird ausschließlich über
+-- den Zugangscode und dadurch geschützte Datenzugriffe kontrolliert.
 -- Der Anon-Key sollte deshalb nicht öffentlich weitergegeben werden.
 
 create extension if not exists "pgcrypto";
@@ -433,4 +433,24 @@ $$;
 insert into storage.buckets (id, name, public)
 values ('baustellenfotos', 'baustellenfotos', true)
 on conflict (id) do nothing;
+
+-- Supabase aktiviert RLS auf storage.objects standardmäßig. Da diese App
+-- (wie oben erläutert) allein über den Zugangscode statt über Supabase-Auth
+-- abgesichert wird, erlauben wir dem Anon-Key vollen Zugriff auf diesen
+-- einen Bucket.
+drop policy if exists "baustellenfotos_lesen" on storage.objects;
+create policy "baustellenfotos_lesen" on storage.objects
+  for select using (bucket_id = 'baustellenfotos');
+
+drop policy if exists "baustellenfotos_hochladen" on storage.objects;
+create policy "baustellenfotos_hochladen" on storage.objects
+  for insert with check (bucket_id = 'baustellenfotos');
+
+drop policy if exists "baustellenfotos_aendern" on storage.objects;
+create policy "baustellenfotos_aendern" on storage.objects
+  for update using (bucket_id = 'baustellenfotos');
+
+drop policy if exists "baustellenfotos_loeschen" on storage.objects;
+create policy "baustellenfotos_loeschen" on storage.objects
+  for delete using (bucket_id = 'baustellenfotos');
 

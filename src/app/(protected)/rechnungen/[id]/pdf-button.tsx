@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { SecondaryButton } from "@/components/ui";
 import { erzeugeRechnungPdf } from "@/lib/pdf/rechnung";
 import type {
@@ -7,6 +8,7 @@ import type {
   Customer,
   Invoice,
   InvoiceItem,
+  SiteDoc,
 } from "@/types/database";
 
 export default function PdfButton({
@@ -14,18 +16,28 @@ export default function PdfButton({
   kunde,
   rechnung,
   positionen,
+  freigegebeneDokus,
 }: {
   firma: CompanySettings;
   kunde: Customer;
   rechnung: Invoice;
   positionen: InvoiceItem[];
+  freigegebeneDokus: SiteDoc[];
 }) {
+  const [erstellt, setErstellt] = useState(false);
+
+  async function klick() {
+    setErstellt(true);
+    try {
+      await erzeugeRechnungPdf(firma, kunde, rechnung, positionen, freigegebeneDokus);
+    } finally {
+      setErstellt(false);
+    }
+  }
+
   return (
-    <SecondaryButton
-      type="button"
-      onClick={() => erzeugeRechnungPdf(firma, kunde, rechnung, positionen)}
-    >
-      📄 Als PDF exportieren
+    <SecondaryButton type="button" onClick={klick} disabled={erstellt}>
+      {erstellt ? "PDF wird erstellt..." : "📄 Als PDF exportieren"}
     </SecondaryButton>
   );
 }
