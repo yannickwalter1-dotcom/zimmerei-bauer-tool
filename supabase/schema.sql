@@ -205,6 +205,226 @@ end;
 $$;
 
 -- =========================================================
+-- Angebot inkl. Positionen atomar anlegen
+-- p_items ist ein JSON-Array mit den Feldern aus quote_items (als Text/Zahl).
+-- =========================================================
+create or replace function create_quote_with_items(
+  p_customer_id uuid,
+  p_titel text,
+  p_gueltig_bis date,
+  p_notiz_frei text,
+  p_mwst_satz numeric,
+  p_items jsonb
+) returns quotes
+language plpgsql
+as $$
+declare
+  v_quote quotes;
+  v_nummer text;
+  v_summe numeric(12, 2);
+begin
+  v_nummer := next_beleg_nummer('angebot', extract(year from now())::int);
+
+  select coalesce(sum((item ->> 'gesamtpreis')::numeric), 0)
+  into v_summe
+  from jsonb_array_elements(p_items) as item;
+
+  insert into quotes (
+    nummer, customer_id, titel, gueltig_bis, notiz_frei, summe_netto, mwst_satz
+  )
+  values (
+    v_nummer, p_customer_id, p_titel, p_gueltig_bis, p_notiz_frei, v_summe, p_mwst_satz
+  )
+  returning * into v_quote;
+
+  insert into quote_items (
+    quote_id, catalog_item_id, bezeichnung, einheit, menge, zeit_stunden,
+    material_preis, stundensatz, einzelpreis, gesamtpreis, sortierung
+  )
+  select
+    v_quote.id,
+    nullif(item ->> 'catalog_item_id', '')::uuid,
+    item ->> 'bezeichnung',
+    item ->> 'einheit',
+    (item ->> 'menge')::numeric,
+    (item ->> 'zeit_stunden')::numeric,
+    (item ->> 'material_preis')::numeric,
+    (item ->> 'stundensatz')::numeric,
+    (item ->> 'einzelpreis')::numeric,
+    (item ->> 'gesamtpreis')::numeric,
+    ordinality::int
+  from jsonb_array_elements(p_items) with ordinality as t (item, ordinality);
+
+  return v_quote;
+end;
+$$;
+
+-- =========================================================
+-- Angebot inkl. Positionen aktualisieren (nur im Status "entwurf" sinnvoll,
+-- wird von der UI durchgesetzt). Ersetzt alle Positionen.
+-- =========================================================
+create or replace function update_quote_with_items(
+  p_quote_id uuid,
+  p_customer_id uuid,
+  p_titel text,
+  p_gueltig_bis date,
+  p_notiz_frei text,
+  p_mwst_satz numeric,
+  p_items jsonb
+) returns quotes
+language plpgsql
+as $$
+declare
+  v_quote quotes;
+  v_summe numeric(12, 2);
+begin
+  select coalesce(sum((item ->> 'gesamtpreis')::numeric), 0)
+  into v_summe
+  from jsonb_array_elements(p_items) as item;
+
+  update quotes
+  set customer_id = p_customer_id,
+      titel = p_titel,
+      gueltig_bis = p_gueltig_bis,
+      notiz_frei = p_notiz_frei,
+      summe_netto = v_summe,
+      mwst_satz = p_mwst_satz
+  where id = p_quote_id
+  returning * into v_quote;
+
+  delete from quote_items where quote_id = p_quote_id;
+
+  insert into quote_items (
+    quote_id, catalog_item_id, bezeichnung, einheit, menge, zeit_stunden,
+    material_preis, stundensatz, einzelpreis, gesamtpreis, sortierung
+  )
+  select
+    p_quote_id,
+    nullif(item ->> 'catalog_item_id', '')::uuid,
+    item ->> 'bezeichnung',
+    item ->> 'einheit',
+    (item ->> 'menge')::numeric,
+    (item ->> 'zeit_stunden')::numeric,
+    (item ->> 'material_preis')::numeric,
+    (item ->> 'stundensatz')::numeric,
+    (item ->> 'einzelpreis')::numeric,
+    (item ->> 'gesamtpreis')::numeric,
+    ordinality::int
+  from jsonb_array_elements(p_items) with ordinality as t (item, ordinality);
+
+  return v_quote;
+end;
+$$;
+
+-- =========================================================
+-- Rechnung aus einem Angebot atomar erzeugen (übernimmt Positionen 1:1).
+-- =========================================================
+create or replace function create_invoice_from_quote(
+  p_quote_id uuid,
+  p_rechnungsdatum date,
+  p_leistungsdatum date,
+  p_zahlungsziel_tage int
+) returns invoices
+language plpgsql
+as $$
+declare
+  v_invoice invoices;
+  v_nummer text;
+  v_quote quotes;
+begin
+  select * into v_quote from quotes where id = p_quote_id;
+
+  if v_quote.id is null then
+    raise exception 'Angebot nicht gefunden';
+  end if;
+
+  v_nummer := next_beleg_nummer('rechnung', extract(year from now())::int);
+
+  insert into invoices (
+    nummer, quote_id, customer_id, rechnungsdatum, leistungsdatum,
+    zahlungsziel_tage, summe_netto, mwst_satz
+  )
+  values (
+    v_nummer, v_quote.id, v_quote.customer_id, p_rechnungsdatum, p_leistungsdatum,
+    p_zahlungsziel_tage, v_quote.summe_netto, v_quote.mwst_satz
+  )
+  returning * into v_invoice;
+
+  insert into invoice_items (
+    invoice_id, bezeichnung, einheit, menge, zeit_stunden,
+    material_preis, stundensatz, einzelpreis, gesamtpreis, sortierung
+  )
+  select
+    v_invoice.id, bezeichnung, einheit, menge, zeit_stunden,
+    material_preis, stundensatz, einzelpreis, gesamtpreis, sortierung
+  from quote_items
+  where quote_id = v_quote.id;
+
+  return v_invoice;
+end;
+$$;
+
+-- =========================================================
+-- Stornorechnung erzeugen (GoBD: Korrektur nur per Storno + neuer Rechnung).
+-- Erzeugt eine neue Rechnung mit negativen Beträgen, verknüpft über
+-- storniert_von, und setzt die ursprüngliche Rechnung auf "storniert".
+-- =========================================================
+create or replace function storniere_rechnung(p_invoice_id uuid) returns invoices
+language plpgsql
+as $$
+declare
+  v_original invoices;
+  v_storno invoices;
+  v_nummer text;
+begin
+  select * into v_original from invoices where id = p_invoice_id;
+
+  if v_original.id is null then
+    raise exception 'Rechnung nicht gefunden';
+  end if;
+
+  if v_original.status = 'storniert' then
+    raise exception 'Rechnung ist bereits storniert';
+  end if;
+
+  v_nummer := next_beleg_nummer('rechnung', extract(year from now())::int);
+
+  -- Die Stornorechnung selbst ist ein eigenständiger, gültiger Beleg mit
+  -- negativen Beträgen (kein storniert_von, da sie nicht selbst storniert ist).
+  insert into invoices (
+    nummer, quote_id, customer_id, rechnungsdatum, leistungsdatum,
+    zahlungsziel_tage, status, summe_netto, mwst_satz
+  )
+  values (
+    v_nummer, v_original.quote_id, v_original.customer_id, current_date,
+    v_original.leistungsdatum, v_original.zahlungsziel_tage, 'offen',
+    -v_original.summe_netto, v_original.mwst_satz
+  )
+  returning * into v_storno;
+
+  insert into invoice_items (
+    invoice_id, bezeichnung, einheit, menge, zeit_stunden,
+    material_preis, stundensatz, einzelpreis, gesamtpreis, sortierung
+  )
+  select
+    v_storno.id,
+    'Storno: ' || bezeichnung,
+    einheit, menge, zeit_stunden, material_preis, stundensatz,
+    -einzelpreis, -gesamtpreis, sortierung
+  from invoice_items
+  where invoice_id = v_original.id;
+
+  -- Die ursprüngliche Rechnung wird als storniert markiert und verweist auf
+  -- die Stornorechnung, die sie storniert hat.
+  update invoices
+  set status = 'storniert', storniert_von = v_storno.id
+  where id = v_original.id;
+
+  return v_storno;
+end;
+$$;
+
+-- =========================================================
 -- Storage Bucket für Baustellenfotos und Firmenlogo
 -- Hinweis: Falls dieser Befehl in eurem Supabase-Projekt nicht per SQL
 -- erlaubt ist, legt den Bucket "baustellenfotos" stattdessen manuell im

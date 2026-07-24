@@ -56,6 +56,20 @@ export type QuoteItem = {
   sortierung: number;
 }
 
+// Eingabeformat für die Positionen beim Anlegen/Aktualisieren eines Angebots
+// (an create_quote_with_items / update_quote_with_items übergeben).
+export type QuoteItemInput = {
+  catalog_item_id: string | null;
+  bezeichnung: string;
+  einheit: string;
+  menge: number;
+  zeit_stunden: number;
+  material_preis: number;
+  stundensatz: number;
+  einzelpreis: number;
+  gesamtpreis: number;
+};
+
 export type Invoice = {
   id: string;
   nummer: string;
@@ -144,6 +158,42 @@ export interface Database {
       next_beleg_nummer: {
         Args: { p_key: "angebot" | "rechnung"; p_jahr: number };
         Returns: string;
+      };
+      create_quote_with_items: {
+        Args: {
+          p_customer_id: string;
+          p_titel: string;
+          p_gueltig_bis: string | null;
+          p_notiz_frei: string | null;
+          p_mwst_satz: number;
+          p_items: QuoteItemInput[];
+        };
+        Returns: Quote;
+      };
+      update_quote_with_items: {
+        Args: {
+          p_quote_id: string;
+          p_customer_id: string;
+          p_titel: string;
+          p_gueltig_bis: string | null;
+          p_notiz_frei: string | null;
+          p_mwst_satz: number;
+          p_items: QuoteItemInput[];
+        };
+        Returns: Quote;
+      };
+      create_invoice_from_quote: {
+        Args: {
+          p_quote_id: string;
+          p_rechnungsdatum: string;
+          p_leistungsdatum: string;
+          p_zahlungsziel_tage: number;
+        };
+        Returns: Invoice;
+      };
+      storniere_rechnung: {
+        Args: { p_invoice_id: string };
+        Returns: Invoice;
       };
     };
   };
