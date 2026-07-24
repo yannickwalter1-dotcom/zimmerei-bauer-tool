@@ -17,15 +17,17 @@ export default async function AngebotDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: angebot }, { data: positionen }, firma] = await Promise.all([
-    supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
-    supabase
-      .from("quote_items")
-      .select("*")
-      .eq("quote_id", id)
-      .order("sortierung", { ascending: true }),
-    holeFirmeneinstellungen(),
-  ]);
+  const [{ data: angebot }, { data: positionen }, firma, { data: rechnung }] =
+    await Promise.all([
+      supabase.from("quotes").select("*").eq("id", id).maybeSingle(),
+      supabase
+        .from("quote_items")
+        .select("*")
+        .eq("quote_id", id)
+        .order("sortierung", { ascending: true }),
+      holeFirmeneinstellungen(),
+      supabase.from("invoices").select("id, nummer").eq("quote_id", id).maybeSingle(),
+    ]);
 
   if (!angebot) notFound();
 
@@ -94,6 +96,22 @@ export default async function AngebotDetailPage({
         )}
 
         <PdfButton firma={firma} kunde={kunde} angebot={angebot} positionen={positionen ?? []} />
+
+        {rechnung ? (
+          <Link
+            href={`/rechnungen/${rechnung.id}`}
+            className="flex h-14 w-full items-center justify-center rounded-xl bg-zinc-900 text-lg font-semibold text-white active:bg-zinc-700"
+          >
+            🧾 Rechnung {rechnung.nummer} ansehen
+          </Link>
+        ) : (
+          <Link
+            href={`/angebote/${angebot.id}/rechnung-erstellen`}
+            className="flex h-14 w-full items-center justify-center rounded-xl bg-zinc-900 text-lg font-semibold text-white active:bg-zinc-700"
+          >
+            Rechnung erstellen
+          </Link>
+        )}
 
         {angebot.status === "entwurf" && (
           <Link
